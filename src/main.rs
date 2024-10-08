@@ -1,7 +1,8 @@
-use std::f32::MIN_POSITIVE;
+use futures_util::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use reqwest::*;
 use serde_json::Number;
+use reqwest_websocket::RequestBuilderExt;
 
 #[derive(Serialize, Deserialize)]
 struct Post {
@@ -43,6 +44,21 @@ async fn main() -> Result<()> {
     let content: Content = client.get(url).send().await?.json().await?;
     for post in content.posts.iter().rev() {
         println!("{} {}: {}\n", post.nickname.to_owned().unwrap_or(String::new()), post.handle, post.post);
+    }
+
+    let upgrade_response = Client::default()
+    .get("wss://pico.api.bsky.mom/subscribe")
+    .upgrade()
+    .send()
+    .await.unwrap();
+
+    let websocket = upgrade_response.into_websocket().await.unwrap();
+    let (mut sender, mut receiver) = websocket.split();
+    while let Some(item) = receiver.try_next().await.unwrap() {
+        if let reqwest_websocket::Message::Text(json_post) = item {
+        let post: Post = serde_json ::from_str(json_post.as_str()).unwrap();
+        println!("{} {}: {}\n", post.nickname.to_owned().unwrap_or(String::new()), post.handle, post.post);
+        }
     }
     Ok(())
 }
