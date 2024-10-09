@@ -7,7 +7,7 @@ use serde_json::Number;
 #[derive(Serialize, Deserialize, Clone)]
 struct Post {
     did: String,
-    handle: String,
+    handle: Option<String>,
     indexedAt: Number,
     nickname: Option<String>,
     post: String,
@@ -60,7 +60,7 @@ fn display_post(post: Post) {
     println!(
         "{} {}: {}\n",
         post.nickname.to_owned().unwrap_or(String::new()),
-        post.handle,
+        post.handle.unwrap_or(String::new()),
         post.post
     );
 }
