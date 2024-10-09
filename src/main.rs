@@ -38,8 +38,9 @@ async fn main() -> Result<()> {
 
     get_history(client.clone(), url).await?;
 
-    get_new_messages(client.clone(), ws_url).await?;
-    
+    tokio::join!(
+        get_new_messages(client.clone(), ws_url)
+    );
     Ok(())
 }
 
