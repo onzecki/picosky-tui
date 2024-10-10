@@ -9,7 +9,6 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style, Stylize},
     symbols,
-    text::Line,
     widgets::{
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
         Widget,
@@ -20,13 +19,15 @@ use reqwest::*;
 use reqwest_websocket::RequestBuilderExt;
 use serde::*;
 use serde_json::{Number, Value};
-use core::panic;
 use std::{collections::VecDeque, fmt};
 use std::sync::{Arc, Mutex};
 
+// Define a couple of useful constants
 const MESSAGES_SHOWN: usize = 20;
 const URL: &str = "https://pico.api.bsky.mom/posts";
 const WS_URL: &str = "wss://pico.api.bsky.mom/subscribe";
+
+// social.psky.feed.post#create definition
 #[derive(Serialize, Deserialize, Clone)]
 struct Post {
     did: String,
@@ -37,11 +38,7 @@ struct Post {
     rkey: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct serverState{
-
-}
-
+// Display for each post - currently used as the chat message display
 impl fmt::Display for Post {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -53,12 +50,14 @@ impl fmt::Display for Post {
         )
     }
 }
+// Definition used for the initial message load
 #[derive(Serialize, Deserialize)]
 struct Content {
     cursor: Number,
     posts: VecDeque<Post>,
 }
 
+// Definition for the App stuff... Contains things like the Posts which are used app-wide
 #[derive(Default, Clone)]
 struct App {
     client: Client,
@@ -69,6 +68,7 @@ struct App {
 }
 
 impl App {
+    // Defaults - Runs once, on start
     async fn load() -> Self {
         let client: Client = reqwest::Client::builder()
             .user_agent(construct_user_agent().as_str())
@@ -84,9 +84,11 @@ impl App {
             should_exit: false,
         }
     }
+    // App function by itself
     async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        let posts_ref = Arc::clone(&self.posts); // Clone the Arc
-        tokio::spawn(get_new_messages(posts_ref, self.client.clone())); // Pass the Arc
+        // Spawning the WS, and letting it run alongside the rest of the app
+        let posts_ref = Arc::clone(&self.posts);
+        tokio::spawn(get_new_messages(posts_ref, self.client.clone()));
         while !self.should_exit {
             terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
             if let Event::Key(key) = event::read()? {
@@ -115,7 +117,7 @@ impl App {
 
 
 }
-
+// Ratatui "Display" for the main App 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [header_area, chat_area, footer_area] = Layout::vertical([
@@ -131,6 +133,7 @@ impl Widget for &mut App {
     }
 }
 
+// Functions used in the rendering process
 impl App {
     fn render_header(area: Rect, buf: &mut Buffer) {
         Paragraph::new("Picosky-TUI")
@@ -151,9 +154,6 @@ impl App {
             .border_set(symbols::border::EMPTY)
             .border_style(Style::new().fg(Color::White.into()))
             .bg(Color::Black);
-
-        // Iterate through all elements in the `items` and stylize them.
-            // Lock the mutex to read the posts
     let posts_lock = self.posts.lock().unwrap();
     let items: Vec<ListItem> = posts_lock
         .iter()
@@ -163,16 +163,11 @@ impl App {
             ListItem::from(todo_item.to_string()).bg(color)
         })
         .collect();
-
-        // Create a List from all list items and highlight the currently selected one
         let list = List::new(items)
             .block(block)
             .highlight_style(Style::new().add_modifier(Modifier::BOLD))
             .highlight_symbol(">")
             .highlight_spacing(HighlightSpacing::Always);
-
-        // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
-        // same method name `render`.
         StatefulWidget::render(list, area, buf, &mut self.post_state);
     }
 }
@@ -190,7 +185,7 @@ async fn main() -> Result<()> {
     ratatui::restore();
     Ok(())
 }
-
+// Making sure that if everything goes south, the fault is attributed to me.
 fn construct_user_agent() -> String {
     let mut user_agent: String =
         format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -201,7 +196,7 @@ fn construct_user_agent() -> String {
     }
     return user_agent;
 }
-
+// Initial message history load
 async fn get_history(client: Client) -> Result<VecDeque<Post>> {
     let initial_content: Content = client
         .get(format!("{}?limit={}&cursor=0", URL, MESSAGES_SHOWN))
@@ -213,7 +208,7 @@ async fn get_history(client: Client) -> Result<VecDeque<Post>> {
     list_items.make_contiguous().reverse();
     Ok(list_items)
 }
-// Update get_new_messages to accept Arc<Mutex<VecDeque<Post>>>
+// WebSocket-based live message update
 async fn get_new_messages(posts: Arc<Mutex<VecDeque<Post>>>, client: Client) -> Result<()> {
     let upgrade_response = client
         .get(WS_URL)
@@ -228,7 +223,6 @@ async fn get_new_messages(posts: Arc<Mutex<VecDeque<Post>>>, client: Client) -> 
         if let reqwest_websocket::Message::Text(json_post) = item {
             if json_post.contains("social.psky.feed.post#create"){
                 let post: Post = serde_json::from_str(&json_post).unwrap();
-                // Lock the mutex to modify the posts
                 let mut posts_lock = posts.lock().unwrap();
                 posts_lock.push_back(post);
             }
