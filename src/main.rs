@@ -18,7 +18,7 @@ use ratatui::{
 use reqwest::*;
 use reqwest_websocket::RequestBuilderExt;
 use serde::*;
-use serde_json::{Number, Value};
+use serde_json::Number;
 use std::{collections::VecDeque, fmt};
 use std::sync::{Arc, Mutex};
 
@@ -176,11 +176,6 @@ impl App {
 async fn main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-
-    let client: Client = reqwest::Client::builder()
-        .user_agent(construct_user_agent().as_str())
-        .build()
-        .unwrap();
     let app_result = App::load().await.run(terminal).await;
     ratatui::restore();
     Ok(())
