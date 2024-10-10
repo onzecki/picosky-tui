@@ -1,4 +1,5 @@
 use color_eyre::Result;
+use futures::{StreamExt, TryStreamExt};
 use ratatui::{
     buffer::Buffer,
     crossterm::{
@@ -16,9 +17,12 @@ use ratatui::{
     DefaultTerminal,
 };
 use reqwest::*;
+use reqwest_websocket::RequestBuilderExt;
 use serde::*;
-use serde_json::Number;
+use serde_json::{Number, Value};
+use core::panic;
 use std::{collections::VecDeque, fmt};
+use std::sync::{Arc, Mutex};
 
 const MESSAGES_SHOWN: usize = 20;
 const URL: &str = "https://pico.api.bsky.mom/posts";
@@ -31,7 +35,11 @@ struct Post {
     nickname: Option<String>,
     post: String,
     rkey: String,
-    cid: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct serverState{
+
 }
 
 impl fmt::Display for Post {
@@ -51,12 +59,12 @@ struct Content {
     posts: VecDeque<Post>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct App {
     client: Client,
     cursor: usize,
     post_state: ListState,
-    posts: VecDeque<Post>,
+    posts: Arc<Mutex<VecDeque<Post>>>,
     should_exit: bool,
 }
 
@@ -66,7 +74,7 @@ impl App {
             .user_agent(construct_user_agent().as_str())
             .build()
             .unwrap();
-        let posts = get_history(client.clone()).await.unwrap();
+        let posts = Arc::new(Mutex::new(get_history(client.clone()).await.unwrap())); 
         let cursor = 0;
         Self {
             client,
@@ -77,6 +85,8 @@ impl App {
         }
     }
     async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        let posts_ref = Arc::clone(&self.posts); // Clone the Arc
+        tokio::spawn(get_new_messages(posts_ref, self.client.clone())); // Pass the Arc
         while !self.should_exit {
             terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
             if let Event::Key(key) = event::read()? {
@@ -102,6 +112,8 @@ impl App {
     fn select_previous(&mut self) {
         self.post_state.select_previous();
     }
+
+
 }
 
 impl Widget for &mut App {
@@ -141,15 +153,16 @@ impl App {
             .bg(Color::Black);
 
         // Iterate through all elements in the `items` and stylize them.
-        let items: Vec<ListItem> = self
-            .posts
-            .iter()
-            .enumerate()
-            .map(|(_, todo_item)| {
-                let color = Color::Black;
-                ListItem::from(todo_item.to_string()).bg(color)
-            })
-            .collect();
+            // Lock the mutex to read the posts
+    let posts_lock = self.posts.lock().unwrap();
+    let items: Vec<ListItem> = posts_lock
+        .iter()
+        .enumerate()
+        .map(|(_, todo_item)| {
+            let color = Color::Black;
+            ListItem::from(todo_item.to_string()).bg(color)
+        })
+        .collect();
 
         // Create a List from all list items and highlight the currently selected one
         let list = List::new(items)
@@ -199,4 +212,28 @@ async fn get_history(client: Client) -> Result<VecDeque<Post>> {
     let mut list_items: VecDeque<Post> = initial_content.posts;
     list_items.make_contiguous().reverse();
     Ok(list_items)
+}
+// Update get_new_messages to accept Arc<Mutex<VecDeque<Post>>>
+async fn get_new_messages(posts: Arc<Mutex<VecDeque<Post>>>, client: Client) -> Result<()> {
+    let upgrade_response = client
+        .get(WS_URL)
+        .upgrade()
+        .send()
+        .await
+        .unwrap();
+
+    let websocket = upgrade_response.into_websocket().await.unwrap();
+    let (mut _sender, mut receiver) = websocket.split();
+    while let Some(item) = receiver.try_next().await.unwrap() {
+        if let reqwest_websocket::Message::Text(json_post) = item {
+            if json_post.contains("social.psky.feed.post#create"){
+                let post: Post = serde_json::from_str(&json_post).unwrap();
+                // Lock the mutex to modify the posts
+                let mut posts_lock = posts.lock().unwrap();
+                posts_lock.push_back(post);
+            }
+            
+        }
+    }
+    Ok(())
 }
