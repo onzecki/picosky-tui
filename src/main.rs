@@ -24,8 +24,8 @@ use std::sync::{Arc, Mutex};
 
 // Define a couple of useful constants
 const MESSAGES_SHOWN: usize = 20;
-const URL: &str = "https://pico.api.bsky.mom/posts";
-const WS_URL: &str = "wss://pico.api.bsky.mom/subscribe";
+const URL: &str = "https://api.psky.social/xrpc/social.psky.chat.getMessages";
+const WS_URL: &str = "wss://api.psky.social/subscribe";
 
 // social.psky.feed.post#create definition
 #[derive(Serialize, Deserialize, Clone)]
@@ -34,7 +34,7 @@ struct Post {
     handle: String,
     indexedAt: Number,
     nickname: Option<String>,
-    post: String,
+    content: String,
     rkey: String,
 }
 
@@ -54,7 +54,7 @@ impl fmt::Display for Post {
 #[derive(Serialize, Deserialize)]
 struct Content {
     cursor: Number,
-    posts: VecDeque<Post>,
+    messages: VecDeque<Post>,
 }
 
 // Definition for the App stuff... Contains things like the Posts which are used app-wide
@@ -216,12 +216,11 @@ async fn get_new_messages(posts: Arc<Mutex<VecDeque<Post>>>, client: Client) -> 
     let (mut _sender, mut receiver) = websocket.split();
     while let Some(item) = receiver.try_next().await.unwrap() {
         if let reqwest_websocket::Message::Text(json_post) = item {
-            if json_post.contains("social.psky.feed.post#create"){
+            if json_post.contains("social.psky.chat.message#create") {
                 let post: Post = serde_json::from_str(&json_post).unwrap();
                 let mut posts_lock = posts.lock().unwrap();
                 posts_lock.push_back(post);
             }
-            
         }
     }
     Ok(())
