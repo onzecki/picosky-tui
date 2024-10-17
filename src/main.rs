@@ -36,6 +36,7 @@ struct Post {
     nickname: Option<String>,
     content: String,
     rkey: String,
+    room: String,
 }
 
 // Display for each post - currently used as the chat message display
@@ -46,7 +47,7 @@ impl fmt::Display for Post {
             "{} {}: {}\n",
             &self.nickname.to_owned().unwrap_or(String::new()),
             &self.handle,
-            &self.post
+            &self.content
         )
     }
 }
@@ -199,7 +200,7 @@ async fn get_history(client: Client) -> Result<VecDeque<Post>> {
         .await?
         .json()
         .await?;
-    let mut list_items: VecDeque<Post> = initial_content.posts;
+    let mut list_items: VecDeque<Post> = initial_content.messages;
     list_items.make_contiguous().reverse();
     Ok(list_items)
 }
